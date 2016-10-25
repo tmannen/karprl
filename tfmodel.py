@@ -27,7 +27,6 @@ def fc_linear(input_, output_dim, name):
 
 """
 From https://www.cs.toronto.edu/~vmnih/docs/dqn.pdf:
-
 We now describe the exact architecture used for all seven Atari games. The input to the neural
 network consists is an 84 × 84 × 4 image produced by φ. The first hidden layer convolves 16 8 × 8
 filters with stride 4 with the input image and applies a rectifier nonlinearity [10, 18]. The second
@@ -39,9 +38,9 @@ approach as Deep Q-Networks (DQN).
 """
 
 def deep_q_net(input_):
-    """ returns 1 output, probability of going down or up """
     h0 = conv2d(input_, 16, 8, 8, 4, 4, name='h0_conv')
     h1 = conv2d(h0, 32, 4, 4, 2, 2, name='h1_conv')
-    h2 = fc_relu(tf.reshape(h1, shape=[-1, 256]), 1, name='h2_relu')
-    
-    return fc_linear(h2, 1, name='output')
+    h2 = fc_relu(tf.reshape(h1, shape=[-1, 3200]), 256, name='h2_relu')
+    h3 = fc_linear(h2, 1, name='h3_linear')
+    return tf.nn.sigmoid(h3), h3
+
