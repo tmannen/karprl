@@ -46,7 +46,8 @@ def prepro_grey(image):
     I = I[::2,::2,:] # downsample by factor of 2
     return np.dot(I, [0.299, 0.587, 0.114])
 
-  greyed = crop_and_rgb2gray(image).astype(np.uint8)
+  greyed = crop_and_rgb2gray(image).astype(np.float32)
+  greyed *= (1.0 / 255.0)
   return greyed
 
 
@@ -75,20 +76,24 @@ def train():
   current_framestack[:,:,0] = observation
   
   input_ = tf.placeholder(dtype=tf.float32, shape=[None, 80, 80, 4])
-  deepq = deep_q_net(input_)
-  print(deepq)
+  targets = tf.placeholder(tf.float32, (None, 1), name="targets")
+  action_probs, logits = deep_q_net(input_)
+  discounted_rewards = tf.placeholder(tf.float32, (None,), name="discounted_rewards")
+
+  # not really sure about this part - why are logits with the discounts?
+  loss = tf.reduce_mean((discounted_rewards - logits) *  tf.nn.sigmoid_cross_entropy_with_logits(logits, targets))
+  train_op = tf.train.AdamOptimizer(0.001).minimize(loss)
+  #gradients = optimizer.compute_gradients(loss)
+  #train_op = optimizer.apply_gradients(gradients)
 
   sess = tf.Session()
   init = tf.initialize_all_variables()
   sess.run(init)
   
-
-  while True:
-
-    # step the environment and get new measurements
-
+  while episode_number < 2000:
+    env.render()
     # forward the policy network and sample an action from the returned probability
-    action_prob, logit = sess.run(deepq, {input_ : current_framestack.reshape(1, 80, 80, 4)})
+    action_prob = sess.run(action_probs, {input_ : current_framestack.reshape(1, 80, 80, 4)})
     action = 2 if np.random.uniform() < action_prob else 3 # roll the dice!
     
     observation, reward, done, info = env.step(action)
@@ -104,28 +109,26 @@ def train():
     
     if done: # an episode finished
       episode_number += 1
-      
-      #can we calculate gradients from all episodes in the batch together?
-      if episode_number % batch_size == 0:
-        epr = np.vstack(rewards)
-        # compute the discounted reward backwards through time
-        discounted = discount_rewards(epr)
-        probs, logits = deepq
-        targets = np.array(actions, dtype=np.float32).reshape(len(actions), 1)
-        loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(
-          logits, targets))
-        optimizer = tf.train.AdamOptimizer(0.001)
-        discounted_rewards = tf.placeholder(tf.float32, (None,), name="discounted_rewards")
-        gradients = optimizer.compute_gradients(loss)
+      epr = np.vstack(rewards)
+      # compute the discounted reward backwards through time
+      discounted = discount_rewards(epr).ravel()
+      actions = np.array(actions, dtype=np.float32).reshape(len(actions), 1)
+      stacked_frames = np.stack(frames)
 
-        for i, (grad, var) in enumerate(gradients):
-          if grad is not None:
-            gradients[i] = (grad * discounted_rewards, var)
+      sess.run([train_op], feed_dict = {input_ : stacked_frames,
+                                 targets : actions,
+                                 discounted_rewards : discounted
+                                 })
 
-        #TODO: train step, feed all the 4-frames to train and also the discounted rewards?
-        optimizer.apply_gradients(gradients)
-
-        observation = prepro_grey(env.reset())
-        break
+      reward_sum += np.sum(rewards)
+      print("average rewards: %f" % (np.sum(rewards)))
+      observation = prepro_grey(env.reset())
+      frames = []
+      actions = []
+      rewards = []
+        
+      observation = prepro_grey(env.reset())
+      current_framestack = np.zeros((80, 80, 4))
+      current_framestack[:,:,0] = observation
       
 train()

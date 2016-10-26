@@ -37,6 +37,21 @@ between 4 and 18 on the games we considered. We refer to convolutional networks 
 approach as Deep Q-Networks (DQN).
 """
 
+"""
+class DeepQNet(object):
+    def __init__(self, ):
+        input_ = tf.placeholder(dtype=tf.float32, shape=[None, 80, 80, 4])
+        self.model = model()
+    def train(self):
+
+    def model(self, input_):
+        h0 = conv2d(input_, 16, 8, 8, 4, 4, name='h0_conv')
+        h1 = conv2d(h0, 32, 4, 4, 2, 2, name='h1_conv')
+        h2 = fc_relu(tf.reshape(h1, shape=[-1, 3200]), 256, name='h2_relu')
+        h3 = fc_linear(h2, 1, name='h3_linear')
+        return tf.nn.sigmoid(h3), h3
+"""
+
 def deep_q_net(input_):
     h0 = conv2d(input_, 16, 8, 8, 4, 4, name='h0_conv')
     h1 = conv2d(h0, 32, 4, 4, 2, 2, name='h1_conv')
