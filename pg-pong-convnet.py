@@ -5,6 +5,7 @@ import gym
 import matplotlib
 import matplotlib.pyplot as plt
 from tfmodel import *
+from scipy.signal import lfilter
 
 # hyperparameters
 H = 200 # number of hidden layer neurons
@@ -14,6 +15,7 @@ gamma = 0.99 # discount factor for reward
 decay_rate = 0.99 # decay factor for RMSProp leaky sum of grad^2
 resume = False # resume from previous checkpoint?
 render = False
+frame_size = (40, 40, 4)
 
 # model initialization
 D = 80 * 80 # input dimensionality: 80x80 grid
@@ -39,11 +41,14 @@ def prepro(I):
   return I.astype(np.float).ravel()
 
 def prepro_grey(image):
-  """ crop and downsample, and preprocess the image as in the Deep Q learning paper: stack 4 previous frames depth wise """
+  """ crop and downsample, grayscale """
   #http://stackoverflow.com/questions/12201577/how-can-i-convert-an-rgb-image-into-grayscale-in-python
   def crop_and_rgb2gray(I):
     I = I[35:195] # crop
-    I = I[::2,::2,:] # downsample by factor of 2
+    if frame_size[0] == 40:
+      I = I[::4,::4,:] # downsample by factor of 4
+    else:
+      I = I[::2,::2,:] # downsample by factor of 2
     return np.dot(I, [0.299, 0.587, 0.114])
 
   greyed = crop_and_rgb2gray(image).astype(np.float32)
@@ -70,30 +75,17 @@ def train():
   reward_sum = 0
   episode_number = 0
   frames = []
-  actions = []
-  current_framestack = np.zeros((80, 80, 4))
+  actionss = []
+  current_framestack = np.zeros(frame_size)
   # the new frame is placed in the front
   current_framestack[:,:,0] = observation
   
-  input_ = tf.placeholder(dtype=tf.float32, shape=[None, 80, 80, 4])
-  targets = tf.placeholder(tf.float32, (None, 1), name="targets")
-  action_probs, logits = deep_q_net(input_)
-  discounted_rewards = tf.placeholder(tf.float32, (None,), name="discounted_rewards")
-
-  # not really sure about this part - why are logits with the discounts?
-  loss = tf.reduce_mean((discounted_rewards - logits) *  tf.nn.sigmoid_cross_entropy_with_logits(logits, targets))
-  train_op = tf.train.AdamOptimizer(0.001).minimize(loss)
-  #gradients = optimizer.compute_gradients(loss)
-  #train_op = optimizer.apply_gradients(gradients)
-
-  sess = tf.Session()
-  init = tf.initialize_all_variables()
-  sess.run(init)
-  
   while episode_number < 2000:
-    env.render()
+    if episode_number % 20 == 0 and episode_number != 0:
+      env.render()
     # forward the policy network and sample an action from the returned probability
-    action_prob = sess.run(action_probs, {input_ : current_framestack.reshape(1, 80, 80, 4)})
+    
+    action_prob = sess.run(action_probs, {input_ : current_framestack.reshape(1, frame_size[0], frame_size[1], frame_size[2])})
     action = 2 if np.random.uniform() < action_prob else 3 # roll the dice!
     
     observation, reward, done, info = env.step(action)
@@ -103,7 +95,7 @@ def train():
     #overwrite with the new frame
     current_framestack[:,:,0] = observation
     y = 1 if action == 2 else 0
-    actions.append(y)
+    actionss.append(y)
     rewards.append(reward)
     frames.append(current_framestack.copy())
     
@@ -111,24 +103,37 @@ def train():
       episode_number += 1
       epr = np.vstack(rewards)
       # compute the discounted reward backwards through time
-      discounted = discount_rewards(epr).ravel()
-      actions = np.array(actions, dtype=np.float32).reshape(len(actions), 1)
-      stacked_frames = np.stack(frames)
+      discounted = discount_rewards(np.array(rewards))
+      
+      discounted_alt = discount(rewards, 0.99)
+      print(discounted)
+      print(discounted_alt)
+      # batch size 3
+      if episode_number % 3 == 0:
+        epr = np.vstack(rewards)
+        # compute the discounted reward backwards through time
+        discounted = discount_rewards(epr)
+        discounted = discounted.ravel()
+        discounted_alt = discount(epr, 0.99)
+        print(discounted)
+        print(discounted_alt)
+        actionss = np.array(actionss, dtype=np.float32).reshape(len(actionss), 1)
+        stacked_frames = np.stack(frames)
 
-      sess.run([train_op], feed_dict = {input_ : stacked_frames,
-                                 targets : actions,
-                                 discounted_rewards : discounted
-                                 })
+        sess.run([train_op], feed_dict = {input_ : stacked_frames,
+                                   actions : actionss,
+                                   discounted_rewards : discounted
+                                   })
 
-      reward_sum += np.sum(rewards)
-      print("average rewards: %f" % (np.sum(rewards)))
-      observation = prepro_grey(env.reset())
-      frames = []
-      actions = []
-      rewards = []
+        reward_sum += np.sum(rewards)
+        print("average rewards: %f" % (np.sum(rewards)))
+        observation = prepro_grey(env.reset())
+        frames = []
+        actionss = []
+        rewards = []
         
       observation = prepro_grey(env.reset())
-      current_framestack = np.zeros((80, 80, 4))
+      current_framestack = np.zeros(frame_size)
       current_framestack[:,:,0] = observation
       
 train()
