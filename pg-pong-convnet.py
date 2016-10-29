@@ -6,7 +6,6 @@ import matplotlib
 import matplotlib.pyplot as plt
 from tfmodel import *
 
-samples = tf.multinomial(tf.log([[10., 10.]]), 5)
 env = gym.make("Pong-v0")
 sess = tf.Session()
 model = PolicyModel(env, num_actions=3, input_shape=(40, 40, 4), sess=sess, learning_rate=0.001, batch_size=3)

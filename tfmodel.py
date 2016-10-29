@@ -9,7 +9,6 @@ def deep_q_net(input_, num_actions):
     h0 = conv2d(input_, 16, 5, 5, 2, 2, name='h0_conv')
     h1 = conv2d(h0, 32, 5, 5, 2, 2, name='h1_conv')
     h2 = fc_relu(tf.reshape(h1, shape=[-1, 3200]), 256, name='h2_relu')
-    # these of course have to be different because they have different weights..
     action_logits = fc_linear(h2, num_actions, name='action_logits')
     value_function = fc_linear(h2, 1, name='values')
     return tf.nn.softmax(action_logits), action_logits, value_function
@@ -34,10 +33,10 @@ class PolicyModel(object):
         self.action_logits = action_logits #stored for sampling an action in an episode
         self.action_index = tf.multinomial(action_logits - tf.reduce_max(action_logits, 1, keep_dims=True), 1)
 
-        loss = tf.reduce_mean((self.discounted_rewards - value_function) * \
+        self.loss = tf.reduce_mean((self.discounted_rewards) * \
                 tf.nn.sparse_softmax_cross_entropy_with_logits(action_logits, self.actions))
         optimizer = tf.train.AdamOptimizer(self.learning_rate)
-        self.train_op = optimizer.minimize(loss)
+        self.train_op = optimizer.minimize(self.loss)
         self.sess.run((tf.initialize_all_variables()))
 
     def run_episode(self):
@@ -52,7 +51,7 @@ class PolicyModel(object):
         done = False
 
         while not done:
-            if self.episode_number % 20 == 0:
+            if self.episode_number % 30 == 0:
                 self.env.render()
             # loosely following https://github.com/karpathy/tf-agent/blob/master/policy_gradient.py
             action = self.sess.run(self.action_index, {self.input_ : current_framestack.reshape(1, width, height, depth)})
@@ -69,11 +68,14 @@ class PolicyModel(object):
             frames.append(current_framestack.copy())
 
         discounted_rewards = discount_rewards(np.array(rewards))
+        discounted_rewards -= np.mean(discounted_rewards)
+        discounted_rewards /= np.std(discounted_rewards)
 
         return actions, discounted_rewards.tolist(), rewards, frames
 
 
     def train(self):
+        tf.logging.set_verbosity(tf.logging.INFO)
         self.episode_number = 0
         while self.episode_number < 500:
             actions = []
@@ -90,10 +92,14 @@ class PolicyModel(object):
                 frames += ep_frames
 
             frames = np.stack(frames)
-            self.sess.run([self.train_op],
+
+            _, loss = self.sess.run([self.train_op, self.loss],
                             feed_dict = {
                                 self.input_ : frames,
                                 self.actions : actions,
                                 self.discounted_rewards : discounted_rewards
                             }
                         )
+
+            print('Rewards for batch: %f' % (np.sum(rewards)))
+            print('loss: %f' % (loss))
